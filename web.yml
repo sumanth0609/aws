@@ -1,0 +1,374 @@
+---
+- hosts: myServers
+  become: yes
+  tasks:
+    - name: Installs Nginx web server
+      apt: pkg=nginx state=installed update_cache=true
+      notify:
+        - start nginx
+
+    - name: Upload default index.html for host
+      copy: src=~/Documents/index.html dest=/usr/share/nginx/html/ mode=0644
+
+   
+
+  handlers:
+    - name: start Nginx
+      service: name=nginx state=started
+      
+==================================================================
+---
+ 
+- name: Install nginx
+ 
+hosts: ubuntu
+ 
+become: yes
+ 
+become_method: sudo
+ 
+gather_facts: true
+ 
+tags: [nginx]
+ 
+tasks:
+ 
+- name: Update the software package repository
+ 
+apt:
+ 
+update_cache: yes
+ 
+- name: Install nginx
+ 
+package:
+ 
+name: “{{ item }}”
+ 
+state: latest
+ 
+with_items:
+ 
+- nginx
+ 
+- name: Allow Nginx Full
+ 
+ufw:
+ 
+rule: allow
+ 
+name: Nginx Full
+ 
+state: enabled
+ 
+- name: Allow Nginx Full
+ 
+ufw:
+ 
+rule: allow
+ 
+name: OpenSSH
+ 
+state: enabled
+ 
+- name: Start nginx
+ 
+service:
+ 
+name: nginx
+ 
+state: started
+ 
+- wait_for:
+ 
+port: 80
+#=========================
+- name: Create SSL certificates
+ 
+hosts: ubuntu
+ 
+become: yes
+ 
+become_method: sudo
+ 
+gather_facts: true
+ 
+tags: [ssl]
+ 
+tasks:
+ 
+- name: Update the software package repository
+ 
+apt:
+ 
+update_cache: yes
+ 
+- name: Install openssl
+ 
+package:
+ 
+name: “{{ item }}”
+ 
+state: latest
+ 
+with_items:
+ 
+- openssl
+ 
+- python-openssl
+ 
+- name: Generate an OpenSSL private key
+ 
+openssl_privatekey:
+ 
+path: /etc/ssl/private/ansible.com.pem
+ 
+- name: Create directory
+ 
+file:
+ 
+path: /etc/ssl/csr
+ 
+state: directory
+ 
+mode: 0755
+ 
+- name: Generate an OpenSSL Certificate Signing Request
+ 
+openssl_csr:
+ 
+path: /etc/ssl/csr/www.ansible.com.csr
+ 
+privatekey_path: /etc/ssl/private/ansible.com.pem
+ 
+country_name: IN
+ 
+organization_name: Ansible
+ 
+email_address: author@shakthimaan.com
+ 
+common_name: www.ansible.com
+ 
+- name: Generate a self signed certificate
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+privatekey_path: /etc/ssl/private/ansible.com.pem
+ 
+csr_path: /etc/ssl/csr/www.ansible.com.csr
+ 
+provider: selfsigned
+#=============================
+#Configuring Nginx for SSL
+#=============================
+# from https://cipherli.st/
+ 
+# and https://raymii.org/s/tutorials/Strong_SSL_Security_On_nginx.html
+ 
+ssl_protocols TLSv1 TLSv1.1 TLSv1.2;
+ 
+ssl_prefer_server_ciphers on;
+ 
+ssl_ciphers “EECDH+AESGCM:EDH+AESGCM:AES256+EECDH:AES256+EDH”;
+ 
+ssl_ecdh_curve secp384r1;
+ 
+ssl_session_cache shared:SSL:10m;
+ 
+ssl_session_tickets off;
+ 
+ssl_stapling on;
+ 
+ssl_stapling_verify on;
+ 
+resolver 8.8.8.8 8.8.4.4 valid=300s;
+ 
+resolver_timeout 5s;
+ 
+# Disable preloading HSTS for now. You can use the commented out header line that includes
+ 
+# the “preload” directive if you understand the implications.
+ 
+#add_header Strict-Transport-Security “max-age=63072000; includeSubdomains; preload”;
+ 
+add_header Strict-Transport-Security “max-age=63072000; includeSubdomains”;
+ 
+add_header X-Frame-Options DENY;
+ 
+add_header X-Content-Type-Options nosniff;
+
+===========================================
+server {
+ 
+listen 80;
+ 
+root /var/www/html;
+ 
+index index.nginx-debian.html;
+ 
+server_name google.com www.google.com;
+ 
+}
+ 
+server {
+ 
+listen 443 ssl http2 default_server;
+ 
+include snippets/self-signed.conf;
+ 
+include snippets/ssl-params.conf;
+ 
+}
+The Ansible playbook for configuring Nginx with SSL is as follows:
+
+- name: Setup nginx with SSL
+ 
+hosts: ubuntu
+ 
+become: yes
+ 
+become_method: sudo
+ 
+gather_facts: true
+ 
+tags: [https]
+ 
+tasks:
+ 
+- copy:
+ 
+src: ../../files/self-signed.conf
+ 
+dest: /etc/nginx/snippets/self-signed.conf
+ 
+owner: root
+ 
+group: root
+ 
+mode: 0644
+ 
+- copy:
+ 
+src: ../../files/ssl-params.conf
+ 
+dest: /etc/nginx/snippets/ssl-params.conf
+ 
+owner: root
+ 
+group: root
+ 
+mode: 0644
+ 
+- copy:
+ 
+src: ../../files/google.com
+ 
+dest: /etc/nginx/sites-enabled/google.com
+ 
+owner: root
+ 
+group: root
+ 
+mode: 0644
+ 
+- name: Restart nginx
+ 
+service:
+ 
+name: nginx
+ 
+state: restarted
+ 
+- wait_for:
+ 
+port: 443
+#====================
+#Validation
+#======================
+- name: Validate SSL certificate
+ 
+hosts: ubuntu
+ 
+become: yes
+ 
+become_method: sudo
+ 
+gather_facts: true
+ 
+tags: [validate]
+ 
+tasks:
+ 
+- name: Certificate matches with the private key
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+privatekey_path: /etc/ssl/private/ansible.com.pem
+ 
+provider: assertonly
+ 
+- name: Certificate can be used for digital signatures
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+provider: assertonly
+ 
+key_usage:
+ 
+- digitalSignature
+ 
+key_usage_strict: true
+ 
+- name: Certificate uses a recent signature algorithm (no SHA1, MD5 or DSA)
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+provider: assertonly
+ 
+signature_algorithms:
+ 
+- sha224WithRSAEncryption
+ 
+- sha256WithRSAEncryption
+ 
+- sha384WithRSAEncryption
+ 
+- sha512WithRSAEncryption
+ 
+- sha224WithECDSAEncryption
+ 
+- sha256WithECDSAEncryption
+ 
+- sha384WithECDSAEncryption
+ 
+- sha512WithECDSAEncryption
+ 
+- name: Certificate matches the domain
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+provider: assertonly
+ 
+subject_alt_name:
+ 
+- DNS:www.ansible.com
+ 
+- name: Certificate is valid for another month (30 days) from now
+ 
+openssl_certificate:
+ 
+path: /etc/ssl/certs/nginx-selfsigned.crt
+ 
+provider: assertonly
+ 
+valid_in: 2592000
